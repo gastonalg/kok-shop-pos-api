@@ -5,100 +5,77 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Controllers + Swagger
+// Controllers
 builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
 
-// Swagger con botón Authorize (Bearer)
+// Swagger
+builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "pos", Version = "v1" });
 
-    var securityScheme = new OpenApiSecurityScheme
+    // Bearer en Swagger
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
-        Description = "Ingresá: Bearer {tu_token}",
-        In = ParameterLocation.Header,
         Type = SecuritySchemeType.Http,
         Scheme = "bearer",
         BearerFormat = "JWT",
-        Reference = new OpenApiReference
-        {
-            Type = ReferenceType.SecurityScheme,
-            Id = "Bearer"
-        }
-    };
-
-    c.AddSecurityDefinition("Bearer", securityScheme);
+        In = ParameterLocation.Header,
+        Description = "JWT Authorization header usando el esquema Bearer."
+    });
 
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
-        { securityScheme, new string[] {} }
+        {
+            new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } },
+            Array.Empty<string>()
+        }
     });
 });
 
-// CORS (para que puedas pegarle desde front / swagger sin dramas)
-builder.Services.AddCors(options =>
+// JWT Auth (no rompe si falta JWT_SECRET)
+var jwtSecret = builder.Configuration["JWT_SECRET"];
+if (!string.IsNullOrWhiteSpace(jwtSecret))
 {
-    options.AddPolicy("AllowAll", policy =>
-        policy.AllowAnyOrigin()
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-    );
-});
-
-// JWT Auth
-var secret = builder.Configuration["JWT_SECRET"];
-
-// Ojo: si no existe, igual levanta, pero login te lo va a decir (500 con mensaje claro).
-// Para endpoints protegidos, si secret falta, no conviene romper el arranque en producción.
-// Si querés que falle al iniciar si falta, te lo cambio.
-if (!string.IsNullOrWhiteSpace(secret))
-{
-    var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
-
     builder.Services
         .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddJwtBearer(options =>
         {
-            options.RequireHttpsMetadata = true;
-            options.SaveToken = true;
-
             options.TokenValidationParameters = new TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
-                IssuerSigningKey = key,
-
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
                 ValidateIssuer = false,
                 ValidateAudience = false,
-
-                ClockSkew = TimeSpan.FromSeconds(30)
+                ClockSkew = TimeSpan.FromMinutes(2)
             };
         });
 }
 else
 {
-    // Igual registramos auth para que la app no explote.
-    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-        .AddJwtBearer();
+    // Si falta, el login igual te puede andar (porque no depende de UseAuthentication),
+    // pero no vas a poder proteger endpoints hasta setear JWT_SECRET.
+    builder.Logging.AddConsole();
 }
-
-builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+// Railway/Reverse proxy: confía en headers (opcional, pero ayuda)
+app.UseForwardedHeaders();
+
+// Swagger siempre (así probás fácil)
 app.UseSwagger();
 app.UseSwaggerUI();
 
-app.UseCors("AllowAll");
+app.MapGet("/", () => "OK");
 
-// Si estás detrás de Railway reverse-proxy
-app.UseForwardedHeaders();
+app.UseHttpsRedirection();
 
+// Si configuraste JWT_SECRET, esto habilita auth
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/", () => Results.Ok("OK"));
 app.MapControllers();
 
 app.Run();
