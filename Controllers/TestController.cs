@@ -1,36 +1,14 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.IdentityModel.Tokens;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
 
 namespace pos.Controllers;
 
 [ApiController]
-[Route("api/auth")]
-public class AuthController : ControllerBase
+[Route("api/test")]
+public class TestController : ControllerBase
 {
-    public record LoginRequest(string user, string pass);
-
-    [HttpPost("login")]
-    public IActionResult Login([FromBody] LoginRequest req)
+    [HttpGet]
+    public IActionResult Get()
     {
-        if (req.user != "admin" || req.pass != "1234")
-            return Unauthorized();
-
-        var secret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? "dev_secret";
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-        var token = new JwtSecurityToken(
-            claims: new[] { new Claim(ClaimTypes.Name, req.user) },
-            expires: DateTime.UtcNow.AddDays(7),
-            signingCredentials: creds
-        );
-
-        return Ok(new
-        {
-            token = new JwtSecurityTokenHandler().WriteToken(token)
-        });
+        return Ok(new { ok = true, msg = "API funcionando" });
     }
 }
