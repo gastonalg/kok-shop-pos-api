@@ -1,60 +1,68 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+[18:04, 23/2/2026] Gasto: using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+
+namespace pos.Controllers;
+
+[ApiController]
+[Route("api/auth")]
+public class AuthController : ControllerBase
+{
+    public record LoginRequest(string User, string Pass);
+
+    [HttpPost("login")]
+    public IActionResult Login([FromBody] LoginRequest req)
+    {
+        // usuario fake (demo)
+        if (req.User != "admin" || req.Pass != "1234")
+            return Unauthorized();
+
+        var secret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? "dev_secret";
+        var key = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(secret));
+
+        var token = new JwtSecurityToken(
+            claims: …
+[18:10, 23/2/2026] Gasto: using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// -------------------- Services --------------------
 builder.Services.AddControllers();
 
-// Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Title = "KOK Shop POS API",
-        Version = "v1"
-    });
-
-    // Swagger con JWT (Authorize button)
-    var securityScheme = new OpenApiSecurityScheme
-    {
+        Description = "Ingresar token",
         Name = "Authorization",
-        Description = "Ingresá: Bearer {tu_token}",
         In = ParameterLocation.Header,
         Type = SecuritySchemeType.Http,
-        Scheme = "bearer",
-        BearerFormat = "JWT",
-        Reference = new OpenApiReference
-        {
-            Type = ReferenceType.SecurityScheme,
-            Id = JwtBearerDefaults.AuthenticationScheme
-        }
-    };
-
-    c.AddSecurityDefinition(JwtBearerDefaults.AuthenticationScheme, securityScheme);
+        Scheme = "bearer"
+    });
 
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
-        { securityScheme, new string[] { } }
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            new string[] {}
+        }
     });
 });
 
-// CORS (abierto para pruebas)
-builder.Services.AddCors(o =>
-{
-    o.AddDefaultPolicy(p =>
-        p.AllowAnyHeader()
-         .AllowAnyMethod()
-         .AllowAnyOrigin()
-    );
-});
-
-// JWT
 var secret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? "dev_secret";
-var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
+var key = Encoding.ASCII.GetBytes(secret);
 
 builder.Services.AddAuthentication(options =>
 {
@@ -63,45 +71,30 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
-    options.RequireHttpsMetadata = false;
-    options.SaveToken = true;
-
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = false,
         ValidateAudience = false,
         ValidateIssuerSigningKey = true,
-        IssuerSigningKey = key,
-        ValidateLifetime = true,
-        ClockSkew = TimeSpan.FromMinutes(2)
+        IssuerSigningKey = new SymmetricSecurityKey(key)
     };
+});
+
+builder.Services.AddCors(o =>
+{
+    o.AddDefaultPolicy(p =>
+        p.AllowAnyHeader().AllowAnyMethod().AllowAnyOrigin());
 });
 
 var app = builder.Build();
 
-// -------------------- Middleware --------------------
-
-// Swagger (dejalo siempre por ahora)
 app.UseSwagger();
-app.UseSwaggerUI(c =>
-{
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "KOK Shop POS API v1");
-    c.RoutePrefix = "swagger"; // queda /swagger
-});
+app.UseSwaggerUI();
 
 app.UseCors();
-
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
 
-// Railway: escuchar el puerto dinámico
-var port = Environment.GetEnvironmentVariable("PORT");
-if (!string.IsNullOrWhiteSpace(port) && int.TryParse(port, out var p))
-{
-    app.Urls.Add($"http://0.0.0.0:{p}");
-}
-
 app.Run();
-
