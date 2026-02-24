@@ -141,4 +141,100 @@ VALUES (@saleId, @pid, @qty, @price, @cost);";
                     cmdItem.Parameters.AddWithValue("@saleId", saleId);
                     cmdItem.Parameters.AddWithValue("@pid", p.Id);
                     cmdItem.Parameters.AddWithValue("@qty", p.Qty);
-                    cmdItem.Parameters.AddWithValue("@price", Round2(p.PriceUsd
+                    cmdItem.Parameters.AddWithValue("@price", Round2(p.PriceUsd));
+                    cmdItem.Parameters.AddWithValue("@cost", Round2(p.CostUsd));
+                    await cmdItem.ExecuteNonQueryAsync();
+                }
+
+                const string sqlStock = @"UPDATE products SET stock = stock - @qty WHERE id=@id;";
+                await using (var cmdStock = new MySqlCommand(sqlStock, conn, (MySqlTransaction)tx))
+                {
+                    cmdStock.Parameters.AddWithValue("@qty", p.Qty);
+                    cmdStock.Parameters.AddWithValue("@id", p.Id);
+                    await cmdStock.ExecuteNonQueryAsync();
+                }
+            }
+
+            await tx.CommitAsync();
+
+            return Ok(new
+            {
+                ok = true,
+                saleId,
+                usdRate = Round2(usdRate),
+                totalUsd = Round2(totalUsd),
+                totalArs = Round2(totalArs),
+                profitUsd = Round2(profitUsd),
+                profitArs = Round2(profitArs)
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            return Problem("Error creando venta: " + ex.Message);
+        }
+    }
+
+    // =========================================
+    // GET /api/sales/day?date=2026-02-24
+    // =========================================
+    [HttpGet("day")]
+    public async Task<IActionResult> SummaryDay([FromQuery] string date)
+    {
+        if (string.IsNullOrWhiteSpace(date))
+            return BadRequest("Falta date=YYYY-MM-DD");
+
+        var cs = _config.GetConnectionString("Default");
+        await using var conn = new MySqlConnection(cs);
+        await conn.OpenAsync();
+
+        const string sql = @"
+SELECT 
+  COUNT(*) as salesCount,
+  COALESCE(SUM(total_usd),0) as totalUsd,
+  COALESCE(SUM(total_ars),0) as totalArs,
+  COALESCE(SUM(profit_usd),0) as profitUsd,
+  COALESCE(SUM(profit_ars),0) as profitArs
+FROM sales
+WHERE DATE(created_at) = @d;";
+
+        await using var cmd = new MySqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("@d", date);
+
+        await using var rd = await cmd.ExecuteReaderAsync();
+        await rd.ReadAsync();
+
+        return Ok(new
+        {
+            date,
+            salesCount = rd.GetInt32("salesCount"),
+            totalUsd = Round2(rd.GetDecimal("totalUsd")),
+            totalArs = Round2(rd.GetDecimal("totalArs")),
+            profitUsd = Round2(rd.GetDecimal("profitUsd")),
+            profitArs = Round2(rd.GetDecimal("profitArs"))
+        });
+    }
+
+    // ===== DTOs =====
+    public class CreateSaleRequest
+    {
+        public string? Seller { get; set; }
+        public List<SaleItem> Items { get; set; } = new();
+    }
+
+    public class SaleItem
+    {
+        public int ProductId { get; set; }
+        public int Qty { get; set; }
+    }
+
+    private class ProductRow
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+        public decimal CostUsd { get; set; }
+        public decimal PriceUsd { get; set; }
+        public int Stock { get; set; }
+        public int Qty { get; set; }
+    }
+}
