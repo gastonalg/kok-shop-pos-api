@@ -15,6 +15,15 @@ public class DbTestController : ControllerBase
     public async Task<IActionResult> Test()
     {
         var cs = _config.GetConnectionString("Default");
-        return Ok(cs);
+        if (string.IsNullOrWhiteSpace(cs))
+            return Problem("Falta ConnectionStrings:Default (ConnectionStrings__Default en Railway).");
+
+        await using var conn = new MySqlConnection(cs);
+        await conn.OpenAsync();
+
+        await using var cmd = new MySqlCommand("SELECT 1;", conn);
+        var result = await cmd.ExecuteScalarAsync();
+
+        return Ok(new { ok = true, result });
     }
 }
