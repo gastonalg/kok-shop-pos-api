@@ -30,9 +30,18 @@ public class ImportProductsController : ControllerBase
         await using var tx = await conn.BeginTransactionAsync();
         try
         {
+            // ✅ 1) Migración automática: agrandar name para nombres largos
+            await using (var alter = new MySqlCommand(
+                "ALTER TABLE products MODIFY name VARCHAR(512) NOT NULL;",
+                conn, tx))
+            {
+                await alter.ExecuteNonQueryAsync();
+            }
+
+            // ✅ 2) Limpieza respetando FK (si elegís truncateFirst)
             if (req.TruncateFirst)
             {
-                // ✅ limpiar respetando FK (orden: hijos -> padres)
+                // Orden hijos -> padres
                 await using (var cmd1 = new MySqlCommand("DELETE FROM sale_items;", conn, tx))
                     await cmd1.ExecuteNonQueryAsync();
 
@@ -43,6 +52,7 @@ public class ImportProductsController : ControllerBase
                     await cmd3.ExecuteNonQueryAsync();
             }
 
+            // ✅ 3) Ejecutar inserts
             foreach (var raw in req.Statements)
             {
                 var stmt = (raw ?? "").Trim();
