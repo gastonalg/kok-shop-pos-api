@@ -4,7 +4,7 @@ using MySqlConnector;
 namespace pos.Controllers;
 
 [ApiController]
-[Route("api/db")]
+[Route("api/dbtest")]
 public class DbTestController : ControllerBase
 {
     private readonly IConfiguration _config;
@@ -17,13 +17,9 @@ public class DbTestController : ControllerBase
     [HttpGet("ping")]
     public async Task<IActionResult> Ping()
     {
-        var host = _config["DB_HOST"];
-        var port = _config["DB_PORT"];
-        var user = _config["DB_USER"];
-        var pass = _config["DB_PASS"];
-        var db   = _config["DB_NAME"];
-
-        var cs = $"Server={host};Port={port};User ID={user};Password={pass};Database={db};SslMode=Required;";
+        var cs = _config.GetConnectionString("Default");
+        if (string.IsNullOrWhiteSpace(cs))
+            return Problem("Falta ConnectionStrings:Default en la configuración.");
 
         await using var conn = new MySqlConnection(cs);
         await conn.OpenAsync();
@@ -31,6 +27,6 @@ public class DbTestController : ControllerBase
         await using var cmd = new MySqlCommand("SELECT 1;", conn);
         var result = await cmd.ExecuteScalarAsync();
 
-        return Ok(new { ok = true, result, host, port, db, user });
+        return Ok(new { ok = true, result });
     }
 }
