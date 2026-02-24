@@ -10,21 +10,19 @@ public class ImportProductsController : ControllerBase
     private readonly IConfiguration _config;
     public ImportProductsController(IConfiguration config) => _config = config;
 
-    public record ImportSqlRequest(string Sql);
-
+    // ✅ Endpoint recomendado: pegás el SQL directo (sin JSON)
     [HttpPost("import-products")]
-    public async Task<IActionResult> ImportProducts([FromBody] ImportSqlRequest req)
+    [Consumes("text/plain")]
+    public async Task<IActionResult> ImportProductsPlain([FromBody] string sql)
     {
-        if (req is null || string.IsNullOrWhiteSpace(req.Sql))
-            return BadRequest("Body inválido. Enviá { \"sql\": \"...\" }");
+        if (string.IsNullOrWhiteSpace(sql))
+            return BadRequest("Pegá el SQL en el body como text/plain.");
 
         var cs = _config.GetConnectionString("Default");
         if (string.IsNullOrWhiteSpace(cs))
             return Problem("Falta ConnectionStrings:Default.");
 
-        // Split simple por ';' para ejecutar muchos INSERT
-        var parts = req.Sql
-            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var parts = sql.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         int executed = 0;
 
@@ -32,7 +30,6 @@ public class ImportProductsController : ControllerBase
         await conn.OpenAsync();
 
         await using var tx = await conn.BeginTransactionAsync();
-
         try
         {
             foreach (var p in parts)
