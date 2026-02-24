@@ -20,12 +20,14 @@ public class MigrateController : ControllerBase
         await using var conn = new MySqlConnection(cs);
         await conn.OpenAsync();
 
-        // Agrandamos name para soportar nombres largos
-        const string sql = @"ALTER TABLE products MODIFY name VARCHAR(512) NOT NULL;";
+        // Aumentar tamaño de name para soportar nombres largos
+        await using (var cmd = new MySqlCommand(
+            "ALTER TABLE products MODIFY name VARCHAR(512) NOT NULL;",
+            conn))
+        {
+            await cmd.ExecuteNonQueryAsync();
+        }
 
-        await using var cmd = new MySqlCommand(sql, conn);
-        await cmd.ExecuteNonQueryAsync();
-
-        return Ok(new { ok = true, message = "Migración OK: products.name => VARCHAR(512)" });
+        return Ok(new { ok = true, message = "OK: products.name => VARCHAR(512)" });
     }
 }
