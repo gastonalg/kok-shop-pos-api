@@ -16,7 +16,7 @@ public class ImportProductsController : ControllerBase
     public async Task<IActionResult> ImportProducts([FromBody] ImportStatementsRequest req)
     {
         if (req?.Statements is null || req.Statements.Count == 0)
-            return BadRequest("Enviá { \"statements\": [\"INSERT ...;\", \"INSERT ...;\"], \"truncateFirst\": true|false }");
+            return BadRequest("Enviá { \"statements\": [\"INSERT ...;\"], \"truncateFirst\": true|false }");
 
         var cs = _config.GetConnectionString("Default");
         if (string.IsNullOrWhiteSpace(cs))
