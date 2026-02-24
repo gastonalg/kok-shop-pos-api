@@ -136,4 +136,71 @@ ORDER BY id DESC;";
 
         return Ok(new { ok = true });
     }
+    // Buscar por nombre o SKU
+// GET /api/products/search?q=bb&limit=20
+[HttpGet("search")]
+public async Task<IActionResult> Search([FromQuery] string? q, [FromQuery] int limit = 20)
+{
+    q = (q ?? "").Trim();
+    if (q.Length == 0) return BadRequest("Falta query param ?q=...");
+    if (limit < 1) limit = 1;
+    if (limit > 100) limit = 100;
+
+    await using var conn = new MySqlConnection(Cs);
+    await conn.OpenAsync();
+
+    var usdRate = await GetUsdRate(conn);
+
+    const string sql = @"
+SELECT id, sku, name, cost_usd, price_usd, stock, is_active, created_at
+FROM products
+WHERE is_active = 1
+  AND (
+        name LIKE CONCAT('%', @q, '%')
+        OR (sku IS NOT NULL AND sku LIKE CONCAT('%', @q, '%'))
+      )
+ORDER BY
+  CASE WHEN sku = @q THEN 0 ELSE 1 END,
+  CASE WHEN name LIKE CONCAT(@q, '%') THEN 0 ELSE 1 END,
+  name
+LIMIT @limit;";
+
+    await using var cmd = new MySqlCommand(sql, conn);
+    cmd.Parameters.AddWithValue("@q", q);
+    cmd.Parameters.AddWithValue("@limit", limit);
+
+    await using var rd = await cmd.ExecuteReaderAsync();
+
+    int oId = rd.GetOrdinal("id");
+    int oSku = rd.GetOrdinal("sku");
+    int oName = rd.GetOrdinal("name");
+    int oCostUsd = rd.GetOrdinal("cost_usd");
+    int oPriceUsd = rd.GetOrdinal("price_usd");
+    int oStock = rd.GetOrdinal("stock");
+    int oIsActive = rd.GetOrdinal("is_active");
+    int oCreatedAt = rd.GetOrdinal("created_at");
+
+    var items = new List<object>();
+
+    while (await rd.ReadAsync())
+    {
+        var priceUsd = rd.GetDecimal(oPriceUsd);
+        var costUsd = rd.GetDecimal(oCostUsd);
+
+        items.Add(new
+        {
+            id = rd.GetInt32(oId),
+            sku = rd.IsDBNull(oSku) ? null : rd.GetString(oSku),
+            name = rd.GetString(oName),
+            costUsd,
+            priceUsd,
+            priceArs = Round2(priceUsd * usdRate),
+            costArs = Round2(costUsd * usdRate),
+            stock = rd.GetInt32(oStock),
+            isActive = rd.GetBoolean(oIsActive),
+            createdAt = rd.GetDateTime(oCreatedAt)
+        });
+    }
+
+    return Ok(new { q, usdRate, items });
 }
