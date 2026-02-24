@@ -10,19 +10,17 @@ public class ImportProductsController : ControllerBase
     private readonly IConfiguration _config;
     public ImportProductsController(IConfiguration config) => _config = config;
 
-    // ✅ Endpoint recomendado: pegás el SQL directo (sin JSON)
+    public record ImportStatementsRequest(List<string> Statements, bool TruncateFirst = false);
+
     [HttpPost("import-products")]
-    [Consumes("text/plain")]
-    public async Task<IActionResult> ImportProductsPlain([FromBody] string sql)
+    public async Task<IActionResult> ImportProducts([FromBody] ImportStatementsRequest req)
     {
-        if (string.IsNullOrWhiteSpace(sql))
-            return BadRequest("Pegá el SQL en el body como text/plain.");
+        if (req?.Statements is null || req.Statements.Count == 0)
+            return BadRequest("Enviá { \"statements\": [\"INSERT ...;\", \"INSERT ...;\"], \"truncateFirst\": true|false }");
 
         var cs = _config.GetConnectionString("Default");
         if (string.IsNullOrWhiteSpace(cs))
             return Problem("Falta ConnectionStrings:Default.");
-
-        var parts = sql.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         int executed = 0;
 
@@ -32,18 +30,26 @@ public class ImportProductsController : ControllerBase
         await using var tx = await conn.BeginTransactionAsync();
         try
         {
-            foreach (var p in parts)
+            if (req.TruncateFirst)
             {
-                var stmt = p.Trim();
+                await using var truncate = new MySqlCommand("TRUNCATE TABLE products;", conn, tx);
+                await truncate.ExecuteNonQueryAsync();
+            }
+
+            foreach (var raw in req.Statements)
+            {
+                var stmt = (raw ?? "").Trim();
                 if (stmt.Length == 0) continue;
 
-                await using var cmd = new MySqlCommand(stmt + ";", conn, tx);
+                if (!stmt.EndsWith(";")) stmt += ";";
+
+                await using var cmd = new MySqlCommand(stmt, conn, tx);
                 await cmd.ExecuteNonQueryAsync();
                 executed++;
             }
 
             await tx.CommitAsync();
-            return Ok(new { ok = true, statements = executed });
+            return Ok(new { ok = true, statements = executed, truncated = req.TruncateFirst });
         }
         catch (Exception ex)
         {
