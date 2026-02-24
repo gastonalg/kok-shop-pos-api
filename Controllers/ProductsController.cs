@@ -67,52 +67,73 @@ SELECT LAST_INSERT_ID();";
 
     // Listado (incluye precio en ARS calculado con la cotización actual)
     [HttpGet]
-public async Task<IActionResult> List()
-{
-    await using var conn = new MySqlConnection(Cs);
-    await conn.OpenAsync();
+    public async Task<IActionResult> List()
+    {
+        await using var conn = new MySqlConnection(Cs);
+        await conn.OpenAsync();
 
-    var usdRate = await GetUsdRate(conn);
+        var usdRate = await GetUsdRate(conn);
 
-    const string sql = @"
+        const string sql = @"
 SELECT id, sku, name, cost_usd, price_usd, stock, is_active, created_at
 FROM products
 ORDER BY id DESC;";
 
-    await using var cmd = new MySqlCommand(sql, conn);
-    await using var rd = await cmd.ExecuteReaderAsync();
+        await using var cmd = new MySqlCommand(sql, conn);
+        await using var rd = await cmd.ExecuteReaderAsync();
 
-    // Ordinals (índices) seguros
-    int oId = rd.GetOrdinal("id");
-    int oSku = rd.GetOrdinal("sku");
-    int oName = rd.GetOrdinal("name");
-    int oCostUsd = rd.GetOrdinal("cost_usd");
-    int oPriceUsd = rd.GetOrdinal("price_usd");
-    int oStock = rd.GetOrdinal("stock");
-    int oIsActive = rd.GetOrdinal("is_active");
-    int oCreatedAt = rd.GetOrdinal("created_at");
+        // Ordinals (índices) seguros para MySqlDataReader
+        int oId = rd.GetOrdinal("id");
+        int oSku = rd.GetOrdinal("sku");
+        int oName = rd.GetOrdinal("name");
+        int oCostUsd = rd.GetOrdinal("cost_usd");
+        int oPriceUsd = rd.GetOrdinal("price_usd");
+        int oStock = rd.GetOrdinal("stock");
+        int oIsActive = rd.GetOrdinal("is_active");
+        int oCreatedAt = rd.GetOrdinal("created_at");
 
-    var items = new List<object>();
+        var items = new List<object>();
 
-    while (await rd.ReadAsync())
-    {
-        var priceUsd = rd.GetDecimal(oPriceUsd);
-        var costUsd = rd.GetDecimal(oCostUsd);
-
-        items.Add(new
+        while (await rd.ReadAsync())
         {
-            id = rd.GetInt32(oId),
-            sku = rd.IsDBNull(oSku) ? null : rd.GetString(oSku),
-            name = rd.GetString(oName),
-            costUsd,
-            priceUsd,
-            priceArs = Round2(priceUsd * usdRate),
-            costArs = Round2(costUsd * usdRate),
-            stock = rd.GetInt32(oStock),
-            isActive = rd.GetBoolean(oIsActive),
-            createdAt = rd.GetDateTime(oCreatedAt)
-        });
+            var priceUsd = rd.GetDecimal(oPriceUsd);
+            var costUsd = rd.GetDecimal(oCostUsd);
+
+            items.Add(new
+            {
+                id = rd.GetInt32(oId),
+                sku = rd.IsDBNull(oSku) ? null : rd.GetString(oSku),
+                name = rd.GetString(oName),
+                costUsd,
+                priceUsd,
+                priceArs = Round2(priceUsd * usdRate),
+                costArs = Round2(costUsd * usdRate),
+                stock = rd.GetInt32(oStock),
+                isActive = rd.GetBoolean(oIsActive),
+                createdAt = rd.GetDateTime(oCreatedAt)
+            });
+        }
+
+        return Ok(new { usdRate, items });
     }
 
-    return Ok(new { usdRate, items });
+    // Ajuste simple de stock (+/-)
+    // Body: { "delta": 10 } o { "delta": -1 }
+    [HttpPost("{id:int}/stock")]
+    public async Task<IActionResult> AdjustStock(int id, [FromBody] UpdateStockRequest req)
+    {
+        await using var conn = new MySqlConnection(Cs);
+        await conn.OpenAsync();
+
+        const string sql = @"UPDATE products SET stock = stock + @d WHERE id = @id;";
+
+        await using var cmd = new MySqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("@d", req.Delta);
+        cmd.Parameters.AddWithValue("@id", id);
+
+        var rows = await cmd.ExecuteNonQueryAsync();
+        if (rows == 0) return NotFound("Producto no encontrado.");
+
+        return Ok(new { ok = true });
+    }
 }
