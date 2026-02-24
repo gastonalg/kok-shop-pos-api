@@ -32,15 +32,21 @@ public class ImportProductsController : ControllerBase
         {
             if (req.TruncateFirst)
             {
-                await using var truncate = new MySqlCommand("TRUNCATE TABLE products;", conn, tx);
-                await truncate.ExecuteNonQueryAsync();
+                // ✅ limpiar respetando FK (orden: hijos -> padres)
+                await using (var cmd1 = new MySqlCommand("DELETE FROM sale_items;", conn, tx))
+                    await cmd1.ExecuteNonQueryAsync();
+
+                await using (var cmd2 = new MySqlCommand("DELETE FROM sales;", conn, tx))
+                    await cmd2.ExecuteNonQueryAsync();
+
+                await using (var cmd3 = new MySqlCommand("DELETE FROM products;", conn, tx))
+                    await cmd3.ExecuteNonQueryAsync();
             }
 
             foreach (var raw in req.Statements)
             {
                 var stmt = (raw ?? "").Trim();
                 if (stmt.Length == 0) continue;
-
                 if (!stmt.EndsWith(";")) stmt += ";";
 
                 await using var cmd = new MySqlCommand(stmt, conn, tx);
@@ -49,7 +55,7 @@ public class ImportProductsController : ControllerBase
             }
 
             await tx.CommitAsync();
-            return Ok(new { ok = true, statements = executed, truncated = req.TruncateFirst });
+            return Ok(new { ok = true, statements = executed, cleaned = req.TruncateFirst });
         }
         catch (Exception ex)
         {
