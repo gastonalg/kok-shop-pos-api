@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using MySqlConnector;
 
 namespace pos.Controllers;
 
@@ -6,9 +7,23 @@ namespace pos.Controllers;
 [Route("api/dbtest")]
 public class DbTestController : ControllerBase
 {
+    private readonly IConfiguration _config;
+
+    public DbTestController(IConfiguration config) => _config = config;
+
     [HttpGet]
-    public IActionResult Test()
+    public async Task<IActionResult> Test()
     {
-        return Ok("API OK");
+        var cs = _config.GetConnectionString("Default");
+        if (string.IsNullOrWhiteSpace(cs))
+            return Problem("Falta ConnectionStrings:Default (ConnectionStrings__Default en Railway).");
+
+        await using var conn = new MySqlConnection(cs);
+        await conn.OpenAsync();
+
+        await using var cmd = new MySqlCommand("SELECT 1;", conn);
+        var result = await cmd.ExecuteScalarAsync();
+
+        return Ok(new { ok = true, result });
     }
 }
